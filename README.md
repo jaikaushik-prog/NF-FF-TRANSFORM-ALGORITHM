@@ -1,11 +1,10 @@
-<![CDATA[# Near-Field Antenna Measurement & ML-Based Anomaly Detection
+# Near-Field Antenna Measurement & ML-Based Anomaly Detection
 
 > **Automated anomaly detection, phase drift calibration, and correction for near-field antenna radiation pattern measurements using a PyTorch 1D Convolutional Autoencoder + LightGBM gradient-boosted regressor, paired with MATLAB Near-Field to Far-Field (NF-FF) transformation scripts.**
 
 ---
 
 ## Table of Contents
-
 
 - [Overview](#overview)
 - [Problem Statement](#problem-statement)
@@ -730,4 +729,4 @@ This project is for academic and research use. Please cite appropriately if used
 ---
 
 *Built for near-field antenna measurement research at 10 GHz.*
-]]>
+
