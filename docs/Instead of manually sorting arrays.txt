@@ -1,0 +1,106 @@
+Instead of manually sorting arrays and interpolating every time a stepper motor jitters or external RF noise spikes in the chamber, we can build a PyTorch 1D Convolutional Autoencoder to act as an automated anomaly detector.
+
+The Strategy: Unsupervised Anomaly Detection
+In a 360-degree sweep, a "clean" near-field radiation pattern is a smooth, continuous sequence. Motor jitter (dropping degrees) or cable reflections (sudden amplitude spikes) act as high-frequency noise.
+
+An Autoencoder compresses the input signal into a lower-dimensional latent space and then reconstructs it.
+
+If you train it on relatively clean antenna sweeps, it learns the "physics" of how a smooth radiation lobe should look.
+
+When you feed it a sweep containing a motor jitter anomaly, the model won't be able to reconstruct the sharp, jagged spike.
+
+The difference (Residual/Reconstruction Loss) between the raw input and the model's output will spike precisely at the anomalous coordinates, allowing you to automatically flag and interpolate only the corrupted data.
+
+Step 1: The PyTorch Autoencoder Architecture
+Here is a lightweight PyTorch implementation designed specifically for 1D spatial/sequential data. You can run this directly alongside your existing data processing scripts.
+
+Python
+import torch
+import torch.nn as nn
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+class NearFieldAutoencoder(nn.Module):
+    def __init__(self):
+        super(NearFieldAutoencoder, self).__init__()
+        
+        # Encoder: Compresses the 360-degree sweep
+        self.encoder = nn.Sequential(
+            nn.Conv1d(in_channels=1, out_channels=16, kernel_size=5, stride=2, padding=2),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=16, out_channels=8, kernel_size=5, stride=2, padding=2),
+            nn.ReLU()
+        )
+        
+        # Decoder: Reconstructs the smooth pattern
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose1d(in_channels=8, out_channels=16, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose1d(in_channels=16, out_channels=1, kernel_size=5, stride=2, padding=2, output_padding=1)
+        )
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded
+
+# Initialize model, loss function, and optimizer
+model = NearFieldAutoencoder()
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+Step 2: Training on Synthetic and Real Sweeps
+To train this robustly without needing thousands of physical measurements, you can generate a synthetic training set. Create ideal cosine-based near-field patterns and add slight Gaussian noise.
+
+Python
+# Create a synthetic batch of "clean" sweeps for training
+epochs = 500
+batch_size = 32
+
+for epoch in range(epochs):
+    # Generate batch of synthetic normal sweeps (Shape: [Batch, Channels, Length])
+    # e.g., smooth curves resembling the main lobe
+    angles = np.linspace(0, 359, 360)
+    ideal_sweeps = -20 * np.log10(np.cos(np.radians(angles - 180))**2 + 0.1)
+    
+    # Add slight variation and reshape for PyTorch Conv1d
+    noise = np.random.normal(0, 0.5, (batch_size, 1, 360))
+    train_data = torch.FloatTensor(ideal_sweeps + noise)
+    
+    # Standard training loop
+    optimizer.zero_grad()
+    outputs = model(train_data)
+    loss = criterion(outputs, train_data)
+    loss.backward()
+    optimizer.step()
+Step 3: Deployment & Anomaly Flagging
+Once trained, pass your raw, un-interpolated .csv file through the model. We can calculate the Mean Squared Error at every single degree to locate the exact coordinates of the stepper motor skips.
+
+Python
+# 1. Load the raw physical data you generated earlier
+# Assume 'mag_measured' is your 1D numpy array of 360 amplitude points
+mag_tensor = torch.FloatTensor(mag_measured).view(1, 1, 360)
+
+# 2. Run Inference
+model.eval()
+with torch.no_grad():
+    reconstructed_sweep = model(mag_tensor)
+
+# 3. Calculate Point-Wise Reconstruction Error
+errors = torch.abs(mag_tensor - reconstructed_sweep).squeeze().numpy()
+
+# 4. Set a threshold (e.g., if the error jumps by more than 5 dB, flag it)
+threshold = 5.0
+anomaly_indices = np.where(errors > threshold)[0]
+
+print(f"Anomalies detected at motor angles: {anomaly_indices}")
+
+# 5. Automatically trigger your interpolation fix ONLY at these indices
+The LightGBM Alternative
+If you prefer to move away from deep learning for calibration, LightGBM is an exceptionally powerful tool for predicting the phase offsets caused by RF cable flexing.
+By creating a feature set that includes the motor's current angle, the previous 5 angles, the temperature of the chamber, and the raw S 
+21
+​
+  phase, you can train a LightGBM regressor to predict the "true" phase correction factor without needing a secondary reference antenna.
+
+Would you like to build out the training loop for the PyTorch Autoencoder to test on your existing CSV data, or dive into how to structure the tabular feature engineering for a LightGBM calibration predictor?
